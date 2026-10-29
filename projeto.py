@@ -249,11 +249,60 @@ def GerarDashboard(filhos, estatisticas, por_genero, por_categoria):
     plt.show()
 
 
+def Conclusoes(df, filhos, estatisticas, por_genero, por_categoria, registros_brutos):
+    def milhar(n):
+        return f"{n:,.0f}".replace(',', '.')
+
+    sem_filhos = (filhos == 0).mean() * 100
+    genero_top = por_genero['compras'].idxmax()
+    pct_clientes = por_genero.loc[genero_top, 'clientes'] / por_genero['clientes'].sum() * 100
+    itens_compra = ' e '.join(f"{v:.1f} ({GENEROS[g]})"
+                              for g, v in por_genero['itens_por_compra'].items())
+    pct_categoria = por_categoria['Total'] / por_categoria['Total'].sum() * 100
+    top3 = pct_categoria.head(3)
+    duplicatas = registros_brutos - len(df)
+    nao_identificados = por_categoria.loc['NAO IDENTIFICADO', 'Total']
+    itens_mes = df.groupby(df['DATA'].dt.to_period('M')).size()
+    meses_baixos = itens_mes[itens_mes < itens_mes.median() * 0.25]
+
+    print("\n" + "=" * 70)
+    print("CONCLUSÕES")
+    print("=" * 70)
+
+    print("\nPrincipais insights:")
+    print(f"1. Clientes sem filhos são maioria: {sem_filhos:.1f}% do total. A média "
+          f"({estatisticas['Média']:.2f}) fica acima da mediana ({estatisticas['Mediana']:.0f}), "
+          "então a distribuição é assimétrica e a mediana a descreve melhor.")
+    print(f"2. O gênero {GENEROS[genero_top]} faz mais compras "
+          f"({por_genero.loc[genero_top, 'pct_compras']:.1f}%), mas isso só reflete a sua "
+          f"participação na base de clientes ({pct_clientes:.1f}%). Por cliente o comportamento "
+          f"é igual: {itens_compra} itens por compra.")
+    print(f"3. As vendas são concentradas: {top3.index[0].capitalize()} responde por "
+          f"{top3.iloc[0]:.1f}% dos itens, e as 3 maiores categorias "
+          f"({', '.join(c.capitalize() for c in top3.index)}) somam {top3.sum():.1f}%.")
+
+    print("\nProblemas remanescentes na base:")
+    print("4. Não há colunas de valor nem de quantidade: 'vendas' aqui é contagem de itens. "
+          f"As {milhar(duplicatas)} linhas duplicadas removidas "
+          f"({duplicatas / registros_brutos * 100:.1f}% da base) podem ser, na verdade, "
+          "mais de uma unidade do mesmo produto.")
+    print(f"5. O produto PR_ID 107 continua sem nome e sem categoria ({milhar(nao_identificados)} "
+          "itens como 'NAO IDENTIFICADO'), há nome com erro de acentuação "
+          "('REFRIGERANTE LIMaO') e os códigos CL_EC, CL_FHL e CL_SEG não têm dicionário "
+          "que confirme o seu significado.")
+    print(f"6. As datas cobrem {df['DATA'].min():%m/%Y} a {df['DATA'].max():%m/%Y}, mas só "
+          f"{df['DATA'].nunique()} dias têm vendas, e {len(meses_baixos)} mês(es) "
+          f"({', '.join(m.strftime('%m/%Y') for m in meses_baixos.index)}) têm volume muito abaixo "
+          "do normal, o que sugere dados faltantes. Cuidado com análises ao longo do tempo.")
+
+
 if __name__ == "__main__":
     # Load the dataset
     df = VerificarArquivoBase()
+    registros_brutos = len(df)
     df = LimparDados(df)
     MostrarInfo(df)
     filhos, estatisticas = EstatisticasFilhos(df)
     por_genero, por_categoria = PadroesAgrupamento(df)
+    Conclusoes(df, filhos, estatisticas, por_genero, por_categoria, registros_brutos)
     GerarDashboard(filhos, estatisticas, por_genero, por_categoria)
