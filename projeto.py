@@ -3,6 +3,13 @@ import zipfile
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
+# Cores do dashboard
+COR_1 = '#2a78d6'
+COR_2 = '#e8743b'
+TEXTO = '#52514e'
+GRADE = '#e5e5e3'
+GENEROS = {'F': 'Feminino', 'M': 'Masculino'}
+
 
 def MostrarInfo(df):
     # Display the number of records and columns
@@ -101,21 +108,55 @@ def EstatisticasFilhos(df):
     print("\nEstatísticas descritivas - número de filhos por cliente:")
     print(estatisticas.round(2).to_string())
 
+    return filhos, estatisticas
+
+
+def PadroesAgrupamento(df):
+    # A base não tem valor nem quantidade, então cada linha conta como um item
+    # vendido e cada CO_ID distinto como uma compra.
+
+    # Agrupamento 1 - groupby: compras, itens e clientes por gênero
+    por_genero = df.groupby('CL_GENERO', observed=True).agg(
+        compras=('CO_ID', 'nunique'),
+        itens_vendidos=('PR_ID', 'size'),
+        clientes=('CL_ID', 'nunique'),
+    )
+    por_genero['itens_por_compra'] = por_genero['itens_vendidos'] / por_genero['compras']
+    por_genero['compras_por_cliente'] = por_genero['compras'] / por_genero['clientes']
+    por_genero['pct_compras'] = por_genero['compras'] / por_genero['compras'].sum() * 100
+    print("\nCompras por gênero:")
+    print(por_genero.round(2).to_string())
+    genero_top = por_genero['compras'].idxmax()
+    print(f"Gênero com mais compras: {GENEROS[genero_top]} "
+          f"({por_genero.loc[genero_top, 'pct_compras']:.1f}% das compras)")
+
+    # Agrupamento 2 - pivot_table: itens vendidos por categoria x gênero
+    por_categoria = df.pivot_table(index='PR_CAT', columns='CL_GENERO', values='CO_ID',
+                                   aggfunc='size', observed=True)
+    por_categoria['Total'] = por_categoria.sum(axis=1)
+    por_categoria = por_categoria.sort_values('Total', ascending=False)
+    print("\nItens vendidos por categoria e gênero:")
+    print(por_categoria.to_string())
+
+    return por_genero, por_categoria
+
+
+def GerarDashboard(filhos, estatisticas, por_genero, por_categoria):
+    fig, eixos = plt.subplot_mosaic(
+        [['barras', 'box'], ['cards', 'cards'], ['categorias', 'genero']],
+        figsize=(12, 14), width_ratios=[2, 1], height_ratios=[3, 2, 3])
+
     # Visualização: distribuição (barras, pois a variável é discreta) e boxplot
-    cor = '#2a78d6'
-    texto = '#52514e'
-    fig, eixos = plt.subplot_mosaic([['barras', 'box'], ['cards', 'cards']], figsize=(12, 9),
-                                    width_ratios=[2, 1], height_ratios=[3, 2])
     ax_barras, ax_box = eixos['barras'], eixos['box']
 
     contagem = filhos.value_counts().sort_index()
-    barras = ax_barras.bar(contagem.index, contagem.values, color=cor, width=0.6)
-    ax_barras.bar_label(barras, padding=3, color=texto)
+    barras = ax_barras.bar(contagem.index, contagem.values, color=COR_1, width=0.6)
+    ax_barras.bar_label(barras, padding=3, color=TEXTO)
     # Espaço acima das barras para as linhas não cruzarem os rótulos
     ax_barras.set_ylim(0, contagem.max() * 1.15)
-    ax_barras.axvline(estatisticas['Média'], ymax=0.85, color=texto, linestyle='--',
+    ax_barras.axvline(estatisticas['Média'], ymax=0.85, color=TEXTO, linestyle='--',
                       linewidth=1.5, label=f"Média ({estatisticas['Média']:.2f})")
-    ax_barras.axvline(estatisticas['Mediana'], ymax=0.85, color=texto, linestyle=':',
+    ax_barras.axvline(estatisticas['Mediana'], ymax=0.85, color=TEXTO, linestyle=':',
                       linewidth=1.5, label=f"Mediana ({estatisticas['Mediana']:.0f})")
     # Entradas só de texto na legenda, sem marca no gráfico
     ax_barras.plot([], [], ' ', label=f"Desvio padrão: {estatisticas['Desvio padrão']:.2f}")
@@ -127,18 +168,13 @@ def EstatisticasFilhos(df):
     ax_barras.legend(frameon=False)
 
     ax_box.boxplot(filhos, widths=0.4, patch_artist=True,
-                   boxprops={'facecolor': cor, 'alpha': 0.35, 'color': cor},
-                   medianprops={'color': cor, 'linewidth': 2},
-                   whiskerprops={'color': texto}, capprops={'color': texto})
+                   boxprops={'facecolor': COR_1, 'alpha': 0.35, 'color': COR_1},
+                   medianprops={'color': COR_1, 'linewidth': 2},
+                   whiskerprops={'color': TEXTO}, capprops={'color': TEXTO})
     ax_box.set_title('Boxplot (quartis)')
     ax_box.set_ylabel('Número de filhos')
     ax_box.set_xticks([])
     ax_box.set_yticks(range(int(filhos.min()), int(filhos.max()) + 1))
-
-    for ax in (ax_barras, ax_box):
-        ax.spines[['top', 'right']].set_visible(False)
-        ax.grid(axis='y', color='#e5e5e3', linewidth=0.8)
-        ax.set_axisbelow(True)
 
     # Cartões com as estatísticas que não aparecem no gráfico de barras
     cards = [
@@ -162,17 +198,55 @@ def EstatisticasFilhos(df):
                                           transform=ax_cards.transAxes, facecolor='#fcfcfb',
                                           edgecolor='#d9d9d6', linewidth=1))
         ax_cards.text(x + 0.015, y + altura * 0.8, titulo, transform=ax_cards.transAxes,
-                      color=texto, fontsize=10, va='center')
+                      color=TEXTO, fontsize=10, va='center')
         ax_cards.text(x + 0.015, y + altura * 0.48, f'{valor:g}', transform=ax_cards.transAxes,
                       color='#0b0b0b', fontsize=20, fontweight='bold', va='center')
         ax_cards.text(x + 0.015, y + altura * 0.17, legenda, transform=ax_cards.transAxes,
-                      color=texto, fontsize=9, va='center')
+                      color=TEXTO, fontsize=9, va='center')
+
+    # Itens vendidos por categoria e gênero (barras horizontais agrupadas)
+    ax_cat = eixos['categorias']
+    categorias = por_categoria.index[::-1]  # maior categoria no topo
+    posicoes = range(len(categorias))
+    espessura = 0.38
+    for deslocamento, genero, cor in ((espessura / 2, 'F', COR_1), (-espessura / 2, 'M', COR_2)):
+        valores = por_categoria.loc[categorias, genero]
+        barras_cat = ax_cat.barh([p + deslocamento for p in posicoes], valores,
+                                 height=espessura - 0.04, color=cor, label=GENEROS[genero])
+        ax_cat.bar_label(barras_cat, labels=[f'{v / 1000:.0f} mil' for v in valores],
+                         padding=3, color=TEXTO, fontsize=8)
+    ax_cat.set_yticks(list(posicoes), [c.capitalize() for c in categorias])
+    ax_cat.set_xlim(0, por_categoria[['F', 'M']].max().max() * 1.12)
+    ax_cat.xaxis.set_major_formatter(lambda v, _: f'{v / 1000:.0f} mil')
+    ax_cat.set_title('Itens vendidos por categoria e gênero')
+    ax_cat.set_xlabel('Itens vendidos')
+    ax_cat.legend(frameon=False, loc='lower right')
+    ax_cat.grid(axis='x', color=GRADE, linewidth=0.8)
+
+    # Compras por gênero
+    ax_gen = eixos['genero']
+    nomes = [GENEROS[g] for g in por_genero.index]
+    barras_gen = ax_gen.bar(nomes, por_genero['compras'], color=[COR_1, COR_2], width=0.55)
+    ax_gen.bar_label(barras_gen, padding=3, color=TEXTO,
+                     labels=[f"{c:,.0f}".replace(',', '.') + f"\n({p:.1f}%)"
+                             for c, p in zip(por_genero['compras'], por_genero['pct_compras'])])
+    ax_gen.set_ylim(0, por_genero['compras'].max() * 1.2)
+    ax_gen.set_title('Compras por gênero')
+    ax_gen.set_ylabel('Número de compras')
+    ax_gen.grid(axis='y', color=GRADE, linewidth=0.8)
+    ax_gen.text(0.5, -0.14, 'Itens por compra: ' + ' · '.join(
+        f"{GENEROS[g]} {v:.1f}" for g, v in por_genero['itens_por_compra'].items()),
+        transform=ax_gen.transAxes, ha='center', color=TEXTO, fontsize=9)
+
+    for ax in (ax_barras, ax_box, ax_cat, ax_gen):
+        ax.spines[['top', 'right']].set_visible(False)
+        ax.set_axisbelow(True)
+    for ax in (ax_barras, ax_box):
+        ax.grid(axis='y', color=GRADE, linewidth=0.8)
 
     fig.tight_layout()
     fig.savefig('estatisticas_filhos.png', dpi=120)
     plt.show()
-
-    return estatisticas
 
 
 if __name__ == "__main__":
@@ -180,4 +254,6 @@ if __name__ == "__main__":
     df = VerificarArquivoBase()
     df = LimparDados(df)
     MostrarInfo(df)
-    EstatisticasFilhos(df)
+    filhos, estatisticas = EstatisticasFilhos(df)
+    por_genero, por_categoria = PadroesAgrupamento(df)
+    GerarDashboard(filhos, estatisticas, por_genero, por_categoria)
