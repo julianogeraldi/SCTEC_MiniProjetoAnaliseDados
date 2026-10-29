@@ -245,7 +245,7 @@ def GerarDashboard(filhos, estatisticas, por_genero, por_categoria):
         ax.grid(axis='y', color=GRADE, linewidth=0.8)
 
     fig.tight_layout()
-    fig.savefig('estatisticas_filhos.png', dpi=120)
+    fig.savefig('dashboard.png', dpi=120)
     plt.show()
 
 
